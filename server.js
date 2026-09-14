@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const OpenAI = require("openai");
+const sharp = require("sharp");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -108,6 +109,7 @@ app.post(
   async (req, res) => {
 
     let inputPath = null;
+    let normalizedPath = null;
 
     console.log(
       "GENERATE REQUEST RECEIVED"
@@ -141,6 +143,31 @@ app.post(
         style
       );
 
+      /* =========================
+         NORMALIZE IMAGE TO PNG
+      ========================= */
+
+      normalizedPath = path.join(
+        os.tmpdir(),
+        `trendpix-normalized-${crypto.randomUUID()}.png`
+      );
+
+      console.log(
+        "NORMALIZING IMAGE TO PNG"
+      );
+
+      await sharp(inputPath)
+        .png()
+        .toFile(normalizedPath);
+
+      console.log(
+        "IMAGE NORMALIZED TO PNG"
+      );
+
+      /* =========================
+         AI PROMPT
+      ========================= */
+
       const prompt =
         `Edit this uploaded photo in the style: ${style}. ` +
         `Keep the person's identity, face, facial features, ` +
@@ -152,6 +179,10 @@ app.post(
         style
       );
 
+      /* =========================
+         OPENAI IMAGE EDIT
+      ========================= */
+
       const stream =
         await client.images.edit({
 
@@ -159,7 +190,7 @@ app.post(
 
           image:
             fs.createReadStream(
-              inputPath
+              normalizedPath
             ),
 
           prompt: prompt,
@@ -242,10 +273,22 @@ app.post(
 
     } finally {
 
+      /* =========================
+         CLEAN TEMP FILES
+      ========================= */
+
       if (inputPath) {
 
         fs.promises
           .unlink(inputPath)
+          .catch(() => {});
+
+      }
+
+      if (normalizedPath) {
+
+        fs.promises
+          .unlink(normalizedPath)
           .catch(() => {});
 
       }

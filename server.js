@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const OpenAI = require("openai");
+const { toFile } = require("openai");
 const sharp = require("sharp");
 const fs = require("fs");
 const os = require("os");
@@ -14,11 +15,7 @@ const app = express();
 ========================= */
 
 app.use((req, res, next) => {
-  console.log(
-    "INCOMING REQUEST:",
-    req.method,
-    req.url
-  );
+  console.log("INCOMING REQUEST:", req.method, req.url);
   next();
 });
 
@@ -32,9 +29,7 @@ const upload = multer({
 
     filename: (req, file, cb) => {
       const ext =
-        path.extname(
-          file.originalname || ""
-        ).toLowerCase() || ".jpg";
+        path.extname(file.originalname || "").toLowerCase() || ".jpg";
 
       cb(
         null,
@@ -48,7 +43,6 @@ const upload = multer({
   },
 
   fileFilter: (req, file, cb) => {
-
     const allowed = [
       "image/jpeg",
       "image/png",
@@ -77,11 +71,10 @@ const client = new OpenAI({
 });
 
 /* =========================
-   HOME / HEALTH
+   HOME
 ========================= */
 
 app.get("/", (req, res) => {
-
   console.log("HOME REQUEST RECEIVED");
 
   res.send(
@@ -89,8 +82,11 @@ app.get("/", (req, res) => {
   );
 });
 
-app.get("/health", (req, res) => {
+/* =========================
+   HEALTH
+========================= */
 
+app.get("/health", (req, res) => {
   console.log("HEALTH CHECK RECEIVED");
 
   res.json({
@@ -116,6 +112,10 @@ app.post(
     );
 
     try {
+
+      /* =========================
+         CHECK IMAGE
+      ========================= */
 
       if (!req.file) {
 
@@ -165,6 +165,28 @@ app.post(
       );
 
       /* =========================
+         CREATE PROPER OPENAI FILE
+      ========================= */
+
+      console.log(
+        "CREATING OPENAI IMAGE FILE"
+      );
+
+      const imageFile = await toFile(
+        fs.createReadStream(normalizedPath),
+        "image.png",
+        {
+          type: "image/png"
+        }
+      );
+
+      console.log(
+        "OPENAI IMAGE FILE READY:",
+        imageFile.name,
+        imageFile.type
+      );
+
+      /* =========================
          AI PROMPT
       ========================= */
 
@@ -188,10 +210,7 @@ app.post(
 
           model: "gpt-image-1",
 
-          image:
-            fs.createReadStream(
-              normalizedPath
-            ),
+          image: imageFile,
 
           prompt: prompt,
 
@@ -212,9 +231,11 @@ app.post(
 
       let finalImage = null;
 
-      for await (
-        const event of stream
-      ) {
+      /* =========================
+         READ AI STREAM
+      ========================= */
+
+      for await (const event of stream) {
 
         console.log(
           "AI EVENT:",
@@ -234,6 +255,10 @@ app.post(
           );
         }
       }
+
+      /* =========================
+         CHECK RESULT
+      ========================= */
 
       if (!finalImage) {
 

@@ -1,10 +1,16 @@
-
 const express = require("express");
 const multer = require("multer");
 const OpenAI = require("openai");
+const { toFile } = require("openai");
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage() });
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 8 * 1024 * 1024
+  }
+});
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -26,14 +32,33 @@ app.post("/generate", upload.single("image"), async (req, res) => {
 
     const prompt =
       `Edit this uploaded photo in the style: ${style}. ` +
-      `Keep the person's identity, face, facial features and natural appearance consistent. ` +
-      `Create a high-quality realistic AI photo.`;
+      `Keep the person's identity, face, facial features, skin tone and natural appearance consistent. ` +
+      `Create a realistic high-quality photo.`;
+
+    const inputFile = await toFile(
+      req.file.buffer,
+      req.file.originalname || "input.jpg",
+      {
+        type: req.file.mimetype || "image/jpeg"
+      }
+    );
 
     const result = await client.images.edit({
       model: "gpt-image-1",
-      image: req.file.buffer,
-      prompt: prompt
+      image: inputFile,
+      prompt: prompt,
+      input_fidelity: "high",
+      quality: "low",
+      size: "1024x1024",
+      output_format: "jpeg",
+      output_compression: 60
     });
+
+    if (!result.data || !result.data[0] || !result.data[0].b64_json) {
+      return res.status(500).json({
+        error: "No image returned from AI"
+      });
+    }
 
     res.json({
       success: true,
@@ -41,10 +66,10 @@ app.post("/generate", upload.single("image"), async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
+    console.error("AI generation error:", error);
 
     res.status(500).json({
-      error: "AI generation failed"
+      error: error.message || "AI generation failed"
     });
   }
 });

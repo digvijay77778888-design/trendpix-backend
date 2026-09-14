@@ -8,12 +8,32 @@ const crypto = require("crypto");
 
 const app = express();
 
+/* =========================
+   REQUEST LOG
+========================= */
+
+app.use((req, res, next) => {
+  console.log(
+    "INCOMING REQUEST:",
+    req.method,
+    req.url
+  );
+  next();
+});
+
+/* =========================
+   UPLOAD
+========================= */
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: os.tmpdir(),
+
     filename: (req, file, cb) => {
       const ext =
-        path.extname(file.originalname || "").toLowerCase() || ".jpg";
+        path.extname(
+          file.originalname || ""
+        ).toLowerCase() || ".jpg";
 
       cb(
         null,
@@ -27,6 +47,7 @@ const upload = multer({
   },
 
   fileFilter: (req, file, cb) => {
+
     const allowed = [
       "image/jpeg",
       "image/png",
@@ -45,14 +66,41 @@ const upload = multer({
   }
 });
 
+/* =========================
+   OPENAI
+========================= */
+
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   maxRetries: 0
 });
 
+/* =========================
+   HOME / HEALTH
+========================= */
+
 app.get("/", (req, res) => {
-  res.send("TrendPix AI Backend is running!");
+
+  console.log("HOME REQUEST RECEIVED");
+
+  res.send(
+    "TrendPix AI Backend is running!"
+  );
 });
+
+app.get("/health", (req, res) => {
+
+  console.log("HEALTH CHECK RECEIVED");
+
+  res.json({
+    success: true,
+    message: "TrendPix backend is healthy"
+  });
+});
+
+/* =========================
+   GENERATE
+========================= */
 
 app.post(
   "/generate",
@@ -61,9 +109,18 @@ app.post(
 
     let inputPath = null;
 
+    console.log(
+      "GENERATE REQUEST RECEIVED"
+    );
+
     try {
 
       if (!req.file) {
+
+        console.log(
+          "NO IMAGE RECEIVED"
+        );
+
         return res.status(400).json({
           error: "No image uploaded"
         });
@@ -73,6 +130,16 @@ app.post(
 
       const style =
         req.body.style || "Retro Film";
+
+      console.log(
+        "IMAGE RECEIVED:",
+        req.file.originalname
+      );
+
+      console.log(
+        "STYLE:",
+        style
+      );
 
       const prompt =
         `Edit this uploaded photo in the style: ${style}. ` +
@@ -87,40 +154,66 @@ app.post(
 
       const stream =
         await client.images.edit({
+
           model: "gpt-image-1",
-          image: fs.createReadStream(inputPath),
+
+          image:
+            fs.createReadStream(
+              inputPath
+            ),
+
           prompt: prompt,
+
           input_fidelity: "high",
+
           quality: "low",
+
           size: "1024x1024",
+
           output_format: "jpeg",
+
           output_compression: 60,
+
           stream: true,
+
           partial_images: 0
         });
 
       let finalImage = null;
 
-      for await (const event of stream) {
+      for await (
+        const event of stream
+      ) {
+
+        console.log(
+          "AI EVENT:",
+          event.type
+        );
 
         if (
           event.type ===
           "image_edit.completed"
         ) {
 
-          finalImage = event.b64_json;
+          finalImage =
+            event.b64_json;
 
           console.log(
-            "AI generation completed"
+            "AI GENERATION COMPLETED"
           );
         }
       }
 
       if (!finalImage) {
+
         throw new Error(
           "AI did not return an image"
         );
       }
+
+      console.log(
+        "SENDING RESULT TO APP"
+      );
 
       res.json({
         success: true,
@@ -130,47 +223,58 @@ app.post(
     } catch (error) {
 
       console.error(
-        "AI generation error:",
+        "AI GENERATION ERROR:",
         error
       );
 
       if (!res.headersSent) {
+
         res.status(
           error.status || 500
         ).json({
+
           error:
             error.message ||
             "AI generation failed"
+
         });
       }
 
     } finally {
 
       if (inputPath) {
+
         fs.promises
           .unlink(inputPath)
           .catch(() => {});
+
       }
     }
   }
 );
 
+/* =========================
+   UPLOAD ERROR
+========================= */
+
 app.use(
   (error, req, res, next) => {
 
     console.error(
-      "Upload error:",
+      "UPLOAD ERROR:",
       error
     );
 
     if (
-      error instanceof multer.MulterError
+      error instanceof
+      multer.MulterError
     ) {
 
       if (
         error.code ===
         "LIMIT_FILE_SIZE"
       ) {
+
         return res.status(400).json({
           error:
             "Image is too large. Maximum size is 5 MB."
@@ -179,12 +283,18 @@ app.use(
     }
 
     res.status(400).json({
+
       error:
         error.message ||
         "Upload failed"
+
     });
   }
 );
+
+/* =========================
+   SERVER
+========================= */
 
 const PORT =
   process.env.PORT || 3000;
@@ -194,4 +304,5 @@ app.listen(PORT, () => {
   console.log(
     `TrendPix AI backend running on port ${PORT}`
   );
+
 });
